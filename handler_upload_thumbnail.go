@@ -2,9 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -36,16 +37,6 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
-	mimeType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid Content-Type header", err)
-		return
-	}
-	if mimeType != "image/jpeg" && mimeType != "image/png" {
-		respondWithError(w, http.StatusUnsupportedMediaType, "Unsupported media type", nil)
-		return
-	}
-
 	const maxMemory = 10 << 20
 	err = r.ParseMultipartForm(maxMemory)
 	if err != nil {
@@ -63,6 +54,12 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusBadRequest, "Content-Type header is required", nil)
 		return
 	}
+
+	if mediaType != "image/jpeg" && mediaType != "image/png" {
+		respondWithError(w, http.StatusUnsupportedMediaType, "Unsupported media type", nil)
+		return
+	}
+
 	imageData, err := io.ReadAll(data)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't read thumbnail data", err)
@@ -101,7 +98,10 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	//}
 
 	fileExtension := mediaType[strings.Index(mediaType, "/")+1:]
-	filePath := filepath.Join(cfg.assetsRoot, fmt.Sprintf("%s.%s", videoID, fileExtension))
+	byteSlice := make([]byte, 32)
+	_, err = rand.Read(byteSlice)
+	fileName := base64.RawURLEncoding.EncodeToString(byteSlice)
+	filePath := filepath.Join(cfg.assetsRoot, fmt.Sprintf("%s.%s", fileName, fileExtension))
 	fileHandle, err := os.Create(filePath)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't create thumbnail file", err)

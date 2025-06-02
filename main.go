@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"log"
 	"net/http"
 	"os"
@@ -22,6 +25,7 @@ type apiConfig struct {
 	s3Region         string
 	s3CfDistribution string
 	port             string
+	s3Client         *s3.Client
 }
 
 type thumbnail struct {
@@ -32,7 +36,7 @@ type thumbnail struct {
 var videoThumbnails = map[uuid.UUID]thumbnail{}
 
 func main() {
-	godotenv.Load(".env")
+	_ = godotenv.Load(".env")
 
 	pathToDB := os.Getenv("DB_PATH")
 	if pathToDB == "" {
@@ -84,6 +88,15 @@ func main() {
 		log.Fatal("PORT environment variable is not set")
 	}
 
+	s3Config, err := config.LoadDefaultConfig(context.Background(), config.WithRegion(s3Region))
+	if err != nil {
+		log.Fatalf("Couldn't load AWS config: %v", err)
+	}
+	s3Client := s3.NewFromConfig(s3Config)
+	if s3Client == nil {
+		log.Fatal("Couldn't create S3 client")
+	}
+
 	cfg := apiConfig{
 		db:               db,
 		jwtSecret:        jwtSecret,
@@ -94,6 +107,7 @@ func main() {
 		s3Region:         s3Region,
 		s3CfDistribution: s3CfDistribution,
 		port:             port,
+		s3Client:         s3Client,
 	}
 
 	err = cfg.ensureAssetsDir()
@@ -106,7 +120,7 @@ func main() {
 	mux.Handle("/app/", appHandler)
 
 	assetsHandler := http.StripPrefix("/assets", http.FileServer(http.Dir(assetsRoot)))
-	mux.Handle("/assets/", cacheMiddleware(assetsHandler))
+	mux.Handle("/assets/", noCacheMiddleware(assetsHandler))
 
 	mux.HandleFunc("POST /api/login", cfg.handlerLogin)
 	mux.HandleFunc("POST /api/refresh", cfg.handlerRefresh)
